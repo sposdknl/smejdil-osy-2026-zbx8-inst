@@ -14,7 +14,7 @@ FreeBSD: { url: "pkg+https://pkg.FreeBSD.org/${ABI}/latest", mirror_type: "srv",
 EOF
 pkg bootstrap -f
 pkg update -f
-pkg install -y git pkgconf nginx php84 php84-bcmath php84-ctype php84-curl php84-dom php84-fileinfo php84-filter php84-gd php84-gettext php84-iconv php84-ldap php84-mbstring php84-mysqli php84-session php84-simplexml php84-sockets php84-xml php84-xmlreader php84-xmlwriter mariadb114-server mariadb114-client curl libevent libxml2 pcre2 fping
+pkg install -y git pkgconf apache24 mod_php84 php84 php84-bcmath php84-ctype php84-curl php84-dom php84-fileinfo php84-filter php84-gd php84-gettext php84-iconv php84-ldap php84-mbstring php84-mysqli php84-session php84-simplexml php84-sockets php84-xml php84-xmlreader php84-xmlwriter mariadb114-server mariadb114-client curl libevent libxml2 pcre2 fping
 
 log "Porty Zabbix 8"
 if ! pkg info -e zabbix8-server || ! pkg info -e zabbix8-agent || ! pkg info -e 'zabbix8-frontend-php84'; then
@@ -101,10 +101,16 @@ Timeout=15
 UserParameter=sposdk.cert.days,/usr/local/libexec/zabbix/sposdk-cert-days.sh
 EOF
 install -d -m 755 /usr/local/libexec/zabbix
-install -m 755 /vagrant/scripts/sposdk-cert-days.sh /usr/local/libexec/zabbix/sposdk-cert-days.sh
+need /tmp/sposdk-cert-days.sh
+install -m 755 /tmp/sposdk-cert-days.sh /usr/local/libexec/zabbix/sposdk-cert-days.sh
 
-log "PHP a nginx"
-sysrc php_fpm_enable=YES nginx_enable=YES zabbix_server_enable=YES zabbix_agentd_enable=YES
+log "PHP a Apache 2.4"
+if pkg info -e nginx; then
+  service nginx onestop 2>/dev/null || true
+  sysrc nginx_enable=NO
+  pkg delete -y nginx
+fi
+sysrc php_fpm_enable=NO apache24_enable=YES zabbix_server_enable=YES zabbix_agentd_enable=YES
 cat > /usr/local/etc/php.ini <<'EOF'
 date.timezone = Europe/Prague
 max_execution_time = 300
@@ -131,38 +137,51 @@ cat > "$FRONTEND/conf/zabbix.conf.php" <<EOF
 EOF
 chown www:www "$FRONTEND/conf/zabbix.conf.php"
 chmod 600 "$FRONTEND/conf/zabbix.conf.php"
-cat > /usr/local/etc/nginx/nginx.conf <<EOF
-worker_processes auto;
-events { worker_connections 1024; }
-http {
-  include mime.types;
-  default_type application/octet-stream;
-  server {
-    listen 80;
-    server_name localhost;
-    root $FRONTEND;
-    index index.php;
-    client_max_body_size 16m;
-    location / { try_files \$uri \$uri/ /index.php?\$args; }
-    location ~ \\.php\$ {
-      fastcgi_split_path_info ^(.+\\.php)(/.+)\$;
-      fastcgi_pass 127.0.0.1:9000;
-      fastcgi_index index.php;
-      include fastcgi_params;
-      fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
-    }
-    location ~ /\\.(?!well-known) { deny all; }
-    location ~ ^/(conf|app|include|local|vendor)/ { deny all; }
-  }
+APACHE_CONF=/usr/local/etc/apache24/httpd.conf
+need "$APACHE_CONF"
+sed -i '' -E \
+  -e 's/^[[:space:]]*LoadModule mpm_(event|worker)_module/#&/' \
+  -e 's/^#[[:space:]]*(LoadModule mpm_prefork_module)/\1/' \
+  "$APACHE_CONF"
+grep -Eq '^[[:space:]]*LoadModule mpm_prefork_module' "$APACHE_CONF" || {
+  echo 'Apache nemá zapnutý prefork MPM pro mod_php84' >&2
+  exit 1
 }
+install -d -m 755 /usr/local/etc/apache24/Includes
+cat > /usr/local/etc/apache24/Includes/zabbix.conf <<EOF
+<VirtualHost *:80>
+    ServerName localhost
+    DocumentRoot "$FRONTEND"
+    DirectoryIndex index.php
+
+    <Directory "$FRONTEND">
+        Options FollowSymLinks
+        AllowOverride None
+        Require all granted
+    </Directory>
+
+    <DirectoryMatch "^$FRONTEND/(conf|app|include|local|vendor)(/|\$)">
+        Require all denied
+    </DirectoryMatch>
+
+    <FilesMatch "\\.php\$">
+        SetHandler application/x-httpd-php
+    </FilesMatch>
+</VirtualHost>
 EOF
-nginx -t
-for svc in php-fpm nginx zabbix_server zabbix_agentd; do
+apachectl configtest
+apachectl -M | grep -q php_module || {
+  echo 'Apache nenačetl mod_php84' >&2
+  exit 1
+}
+for svc in apache24 zabbix_server zabbix_agentd; do
   service "$svc" restart 2>/dev/null || service "$svc" start
 done
 
 log "Založení monitorovaných hostů"
-/usr/local/bin/php /vagrant/scripts/configure-hosts.php
+need /tmp/configure-hosts.php
+need /tmp/sposdk.cz_hosts.yaml
+/usr/local/bin/php /tmp/configure-hosts.php
 
 log "Hotovo: http://127.0.0.1:8080/"
 echo "Heslo Admin je ve VM v /var/db/zabbix-install/admin-password (přístup root)."

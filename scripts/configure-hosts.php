@@ -56,7 +56,7 @@ ensureHost('spos-zabbix8', $groupId, [['templateid' => $templateId]]);
 $existingCert = api('host.get', ['filter' => ['host' => ['sposdk.cz']], 'output' => ['hostid']]);
 if (!$existingCert) {
     api('configuration.import', ['format' => 'yaml',
-        'source' => file_get_contents('/vagrant/Zabbix/export/sposdk.cz_hosts.yaml'),
+        'source' => file_get_contents('/tmp/sposdk.cz_hosts.yaml'),
         'rules' => [
             'host_groups' => ['createMissing' => true, 'updateExisting' => false],
             'hosts' => ['createMissing' => true, 'updateExisting' => false]
@@ -65,8 +65,15 @@ if (!$existingCert) {
 $certHostId = ensureHost('sposdk.cz', $groupId, []);
 $items = api('item.get', ['hostids' => [$certHostId], 'filter' => ['key_' => ['sposdk.cert.days']], 'output' => ['itemid']]);
 if (!$items) {
+    $interfaces = api('hostinterface.get', [
+        'hostids' => [$certHostId],
+        'filter' => ['type' => 1, 'main' => 1],
+        'output' => ['interfaceid']
+    ]);
+    if (!$interfaces) throw new RuntimeException('Host sposdk.cz nemá hlavní rozhraní Zabbix agenta');
     api('item.create', ['hostid' => $certHostId, 'name' => 'TLS certificate: days until expiry',
         'key_' => 'sposdk.cert.days', 'type' => 0, 'value_type' => 3,
+        'interfaceid' => $interfaces[0]['interfaceid'],
         'delay' => '1h', 'units' => 'd', 'description' => 'Certifikát https://sposdk.cz']);
 }
 

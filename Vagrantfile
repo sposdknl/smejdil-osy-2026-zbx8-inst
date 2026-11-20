@@ -12,5 +12,9 @@ Vagrant.configure("2") do |config|
     vb.cpus = 2
   end
 
+  # File provisioners use SSH/SCP and do not depend on the /vagrant shared folder.
+  config.vm.provision "file", source: "scripts/sposdk-cert-days.sh", destination: "/tmp/sposdk-cert-days.sh"
+  config.vm.provision "file", source: "scripts/configure-hosts.php", destination: "/tmp/configure-hosts.php"
+  config.vm.provision "file", source: "Zabbix/export/sposdk.cz_hosts.yaml", destination: "/tmp/sposdk.cz_hosts.yaml"
   config.vm.provision "shell", path: "scripts/install.sh"
 end

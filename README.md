@@ -1,60 +1,72 @@
-# Samostatná práce: Instalace Zabbixu 8.0 LTS
+# Zabbix 8.0 LTS na FreeBSD 14.3
 
-![Titulní ilustrace s logy Zabbix, Vagrant a Debian nad virtuálním serverem](Images/zabbix-8-cover.png)
+![FreeBSD server s monitoringem](Images/freebsd-zabbix8-hero.png)
 
-## Cíl
+Reprodukovatelná školní instalace Zabbix serveru 8.0 LTS, MariaDB, webového rozhraní a klasického agenta na boxu `bento/freebsd-14.3`. Web běží na **http://127.0.0.1:8080/**. Virtuální stroj má 2 CPU a 4 GB RAM; paměť je vyšší než minimum zadání kvůli sestavení portu Zabbix serveru.
 
-Připravte reprodukovatelnou instalaci **Zabbix serveru 8.0 LTS** ve virtuálním stroji **Debian 13**. Virtuální stroj vytvořte pomocí **Vagrantu** a instalaci proveďte **shell skriptem** spuštěným jako Vagrant provisioning. Pro databázi použijte **MariaDB**. Na stejný stroj nainstalujte také Zabbix Agent 2 a zpřístupněte webové rozhraní.
+## Spuštění
 
-Svůj studentský repozitář si vytvořte přes [odkaz k zadání v GitHub Classroom](https://osy.sposdk.cz/zadani/osy-2026-zbx8-inst). Výsledkem má být projekt, který lze spustit z čistého klonu příkazem `vagrant up`, bez ruční instalace balíčků uvnitř virtuálního stroje.
+Požadavky: Vagrant, VirtualBox, internet a alespoň 4 GB volné RAM pro VM. V kořeni projektu:
 
-## 1. Virtuální stroj a automatizace
+```sh
+vagrant validate
+vagrant up
+vagrant ssh
+```
 
-- Vytvořte `Vagrantfile` pro Debian 13 (například box `bento/debian-13`) a VirtualBox. Nastavte alespoň 2 CPU a 2 GB RAM; při nedostatku paměti na hostiteli můžete po zdůvodnění v dokumentaci parametry upravit.
-- Nastavte hostname a přesměrování HTTP portu na `127.0.0.1` hostitelského počítače. SSH zpřístupněte přes `vagrant ssh`; případné vlastní přesměrování SSH omezte také na `127.0.0.1`.
-- Připojte jeden nebo více shell skriptů pomocí `config.vm.provision "shell"`. Skripty musí být součástí repozitáře a musí instalaci dokončit bez ručního spouštění příkazů ve VM.
-- Skript musí při chybě skončit nenulovým návratovým kódem. Opakované spuštění `vagrant provision` nesmí zničit existující databázi ani vyžadovat ruční opravu. Opakovatelnost scriptu není primárně nutná je jen výhodou. Nebude známkováno.
+Provisioning běží automaticky. Je možné ho zopakovat příkazem `vagrant provision`; již existující databáze se znovu neimportuje. První spuštění trvá déle kvůli sestavení Zabbix serveru. Skript končí při chybě nenulovým kódem.
 
-## 2. Instalace Zabbixu
+## Instalace
 
-Ve skriptu proveďte tyto kroky:
+Skript nastaví oficiální FreeBSD `latest` repozitář a běžné závislosti instaluje jako binární balíčky přes `pkg`. Používá porty FreeBSD 8.0 pro server, agenta a frontend. Zabbix server sestaví z portu s podporou MariaDB 11.4; agent a frontend vezme z `pkg`, pokud jsou v `latest` dostupné, jinak z portů. Frontend je pouze kopírování PHP souborů, bez kompilace. Instalace se inspiruje [postupem pro Zabbix 8 agenta na FreeBSD](https://github.com/sposdknl/smejdil-osy-2026-zbx8-auto-reg).
 
-1. Přidejte **oficiální repozitář Zabbix 8.0 pro Debian 13** a nainstalujte balíčky pro Zabbix server s databází MySQL/MariaDB, webové rozhraní, Apache, SQL schéma a Zabbix Agent 2. Nepoužívejte balíčky Zabbixu z výchozího repozitáře Debianu.
-2. Nainstalujte MariaDB, vytvořte databázi `zabbix` s kódováním `utf8mb4` a uživatele s přístupem pouze k této databázi. Počáteční schéma a data importujte právě jednou.
-3. Nastavte připojení Zabbix serveru a webového rozhraní k databázi. Hesla nesmějí být zveřejněna v README, snímcích obrazovky ani v historii Git. Popište, jak se při spuštění předávají nebo vytvářejí.
-4. Spusťte a povolte služby MariaDB, Zabbix server, Zabbix Agent 2 a Apache. Agenta nastavte tak, aby monitoroval místní server.
-5. Dokončete prvotní nastavení webového rozhraní. V jeho záhlaví nastavte vlastní rozpoznatelný název serveru, například své jméno nebo školní identifikátor. Instalujte do systému `zabbix.conf.php` a nakonfigurujte ho tak aby nebylo nutné ručně procházet PHP wizard.
+MariaDB má databázi `zabbix` s `utf8mb4` a samostatným účtem omezeným na tuto databázi. Heslo databáze se generuje ve VM do `/var/db/zabbix-install/db-password` s oprávněním pouze pro root. Konfigurace serveru a frontendu vzniká až ve VM; v Git nejsou žádná hesla. Výchozí účet Zabbix `Admin` se při prvním provisioningu přenastaví na náhodné heslo uložené ve VM do `/var/db/zabbix-install/admin-password`.
 
-Při postupu vycházejte z [oficiální instalace Zabbixu](https://www.zabbix.com/download), [poznámek k balíčkům](https://www.zabbix.com/documentation/8.0/en/manual/installation/install/packages) a [požadavků Zabbixu 8.0](https://www.zabbix.com/documentation/8.0/en/manual/installation/requirements). Adresu a název instalačního balíčku repozitáře ověřte při práci podle aktuálního oficiálního návodu.
+Heslo pro přihlášení zobrazíte ve VM:
 
-## 3. Ověření monitorování
+```sh
+sudo cat /var/db/zabbix-install/admin-password
+```
 
-- Otevřete webové rozhraní z hostitelského počítače. Uveďte přesnou adresu a port ve svém README.
-- Přidejte místní Debian 13 jako hosta a přiřaďte vhodnou šablonu pro Zabbix Agent 2. V **Latest data** ukažte aktuální hodnoty z agenta.
-- Importujte hosta `sposdk.cz` z některého souboru v adresáři [`Zabbix/export`](Zabbix/export/) a ověřte v **Latest data** hodnoty pro TLS/SSL certifikát `https://sposdk.cz`. Pokud import staršího exportu vyžaduje úpravu pro Zabbix 8.0, změnu popište a upravený export odevzdejte.
-- Ověřte běh služeb příkazem `systemctl status` nebo `systemctl is-active`.
+Přihlaste se na http://127.0.0.1:8080/ jako `Admin`. Web má v záhlaví jméno **SmEjDiL · FreeBSD 14.3 · Zabbix 8**; PHP wizard se neprochází. Web je dostupný jen z hostitelského `127.0.0.1`. SSH používá `vagrant ssh` (přesměrovaný port 2211 také jen na loopbacku).
 
-## 4. Odevzdání
+## Monitoring a ověření
 
-Ve svém GitHub Classroom repozitáři odevzdejte:
+Provisioning přes Zabbix API založí skupinu `SPOS Lab`, importuje upravený export `Zabbix/export/sposdk.cz_hosts.yaml` a připraví dva hosty:
 
-- `Vagrantfile`, všechny provisioning skripty a případné konfigurační šablony;
-- vlastní `README.md` s předpoklady, příkazy pro spuštění (`vagrant up`, `vagrant ssh`, `vagrant provision`), adresou webu, postupem ověření a popisem řešení potíží, na které jste narazili;
-- snímky obrazovky v adresáři `Images/`: web s vaším názvem serveru, dostupný místní host a jeho aktuální data, monitoring certifikátu `sposdk.cz` a ověření běhu služeb;
-- odkaz na repozitář v Teams.
-- soubory zadání odstraňte a ponechte jen Vaši práci.
+| Host | Kontrola |
+| --- | --- |
+| `spos-zabbix8` | šablona `FreeBSD by Zabbix agent`, lokální agent na `127.0.0.1:10050` |
+| `sposdk.cz` | položka `sposdk.cert.days`, počet dnů do konce platnosti TLS certifikátu `https://sposdk.cz` |
 
-Do repozitáře neukládejte `.vagrant/`, virtuální disk, hesla ani soubory s tajnými údaji. Před odevzdáním ověřte projekt z čistého klonu nebo po `vagrant destroy` a novém `vagrant up`.
+FreeBSD port Zabbix 8 obsahuje klasického agenta. Pro kontrolu certifikátu proto používáme krátký skript s `openssl` a vlastní položku agenta. Agent 2 a jeho šablona `Website certificate by Zabbix agent 2` nejsou součástí dostupného FreeBSD portu. Původní export pro Zabbix 7 používal šablonu Agenta 2. Upravený export pro Zabbix 8 vytváří hosta `sposdk.cz` ve skupině `Web Certificate`; vlastní položka klasického agenta se následně doplní přes API. Import se provede pouze tehdy, když host ještě neexistuje.
 
-## Hodnocení (30 bodů)
+Po dokončení `vagrant up` ověřte:
 
-| Kritérium | Body |
-| --- | ---: |
-| Funkční Vagrantfile s Debianem 13 a dostupným webem | 5 |
-| Automatická instalace Zabbixu 8.0 LTS, MariaDB a webového rozhraní | 10 |
-| Instalace agenta, místní host a aktuální data | 4 |
-| Monitoring TLS/SSL certifikátu `sposdk.cz` | 4 |
-| Opakovatelný provisioning a bezpečné zacházení s hesly | 3 |
-| Dokumentace a požadované snímky obrazovky | 4 |
+```sh
+vagrant ssh
+sudo service mysql-server status
+sudo service zabbix_server status
+sudo service zabbix_agentd status
+sudo service php-fpm status
+sudo service nginx status
+/usr/local/sbin/zabbix_server -V
+/usr/local/sbin/zabbix_agentd -V
+/usr/local/sbin/zabbix_agentd -t sposdk.cert.days
+```
 
-Soubory v adresáři [`Example`](Example/) zachycují starší řešení pro Zabbix 7.0. Nejsou hotovým řešením této práce; zejména jejich repozitář, parametry VM a práce s heslem nesplňují nové požadavky.
+Ve webu otevřete **Monitoring → Latest data** a vyberte hosty `spos-zabbix8` a `sposdk.cz`. Položka certifikátu má interval 1 hodinu, první údaj se objeví po prvním sběru. Po vlastním spuštění VM doplňte do `Images/` skutečné snímky webu, hostů, dat a služeb; titulní ilustrace není důkaz běhu.
+
+## Řešení potíží
+
+- Chyba při `pkg` nebo `git clone`: ověřte DNS a síť VM, pak spusťte `vagrant provision`.
+- Neúspěšné sestavení portu: zkontrolujte `/usr/ports/net-mgmt/zabbix8-server`, volné místo a výpis chyby. Opakované `vagrant provision` bezpečně naváže.
+- Web není dostupný: `sudo service nginx status`, `sudo service php-fpm status` a `sudo nginx -t`.
+- Agent nebo server neběží: zkontrolujte `/var/log/zabbix/` a nastavení služeb přes `sysrc`.
+- `sposdk.cert.days` je unsupported: ověřte přístup VM k `sposdk.cz:443` a spusťte `/usr/local/libexec/zabbix/sposdk-cert-days.sh`.
+
+## Zdroje
+
+- [FreeBSD port Zabbix 8 server](https://www.freshports.org/net-mgmt/zabbix8-server/)
+- [FreeBSD port Zabbix 8 agent](https://www.freshports.org/net-mgmt/zabbix8-agent/)
+- [Zabbix 8 dokumentace](https://www.zabbix.com/documentation/8.0/en/)
